@@ -1,0 +1,57 @@
+name: TravelLand CI/CD
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::401844779865:role/GitHubActions-TravelLand
+          aws-region: ap-south-1
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Docker image
+        run: |
+          docker build -t travelland:${{ github.sha }} .
+
+      - name: Tag Docker image
+        run: |
+          docker tag travelland:${{ github.sha }} \
+            401844779865.dkr.ecr.ap-south-1.amazonaws.com/travelland:${{ github.sha }}
+
+      - name: Push Docker image
+        run: |
+          docker push \
+            401844779865.dkr.ecr.ap-south-1.amazonaws.com/travelland:${{ github.sha }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name travelland-cluster \
+            --region ap-south-1
+
+      - name: Deploy to EKS
+        run: |
+          kubectl set image deployment/travelland \
+            travelland=401844779865.dkr.ecr.ap-south-1.amazonaws.com/travelland:${{ github.sha }}
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/travelland
+          kubectl get pods
